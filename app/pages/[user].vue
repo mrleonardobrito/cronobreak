@@ -1,7 +1,8 @@
 <script setup lang="ts">
+
 const { session } = useUserSession();
 const login = useRoute().params.user as string;
-const isMyProfile = computed(() => session.value?.user?.login === login);
+const isMyProfile = computed(() => (session.value?.user as any)?.login === login);
 
 const fetchUser = () => useRequestFetch()(`/api/users/${login}`) as Promise<User>;
 const fetchHabits = () => useRequestFetch()(`/api/users/${login}/habits`) as Promise<Habit[]>;
@@ -24,30 +25,175 @@ useSeoMeta({
   ogTitle: pageTitle,
   ogSiteName: pageTitle,
 });
+
+type Priority = 'lowest' | 'low' | 'medium' | 'high' | 'highest';
+type TimeEstimate = '15m' | '30m' | '1h' | '2h' | '3h' | '4h' | '5h' | '6h' | '7h' | '8h' | '9h' | '10h';
+type Status = 'todo' | 'in_progress' | 'done';
+
+type Task = {
+  id: string;
+  title: string;
+  description: string;
+  priority: Priority;
+  estimate: TimeEstimate;
+  status: Status;
+  parentId?: string;
+};
+
+const rawData = ref<Task[]>([
+  {
+    id: '1',
+    title: 'Task 1',
+    description: 'Description 1',
+    priority: 'medium',
+    estimate: '1h',
+    status: 'todo',
+  },
+  {
+    id: '1.1',
+    title: 'Sub Task 1',
+    description: 'Sub Task Description 1',
+    priority: 'low',
+    estimate: '15m',
+    status: 'todo',
+    parentId: '1',
+  },
+  {
+    id: '2',
+    title: 'Task 2',
+    description: 'Description 2',
+    priority: 'medium',
+    estimate: '1h',
+    status: 'todo',
+  },
+]);
+
+const expandedRows = ref<Set<string>>(new Set());
+
+const getDepth = (task: Task, allTasks: Task[]): number => {
+  if (!task.parentId) return 0;
+  const parent = allTasks.find(t => t.id === task.parentId);
+  return parent ? getDepth(parent, allTasks) + 1 : 0;
+};
+
+const hasSubTasks = (taskId: string): boolean => {
+  return rawData.value.some(task => task.parentId === taskId);
+};
+
+const getPriorityColor = (priority: Priority): string => {
+  switch (priority) {
+    case 'lowest':
+      return 'text-green-500';
+    case 'low':
+      return 'text-blue-500';
+    case 'medium':
+      return 'text-green-500';
+    case 'high':
+      return 'text-yellow-500';
+    case 'highest':
+      return 'text-red-500';
+  }
+  return 'text-gray-500';
+};
+
+const data = computed(() => {
+  const filtered = rawData.value.filter(task => {
+    if (task.parentId) {
+      return expandedRows.value.has(task.parentId);
+    }
+    return true;
+  });
+
+  const sorted: (Task & { depth: number })[] = [];
+  const processed = new Set<string>();
+
+  for (const task of filtered) {
+    if (processed.has(task.id)) continue;
+
+    if (!task.parentId) {
+      sorted.push({ ...task, depth: 0 });
+      processed.add(task.id);
+
+      const subtasks = filtered.filter(t => t.parentId === task.id);
+      for (const subtask of subtasks) {
+        sorted.push({ ...subtask, depth: getDepth(subtask, rawData.value) });
+        processed.add(subtask.id);
+      }
+    }
+  }
+
+  return sorted;
+});
+
+const toggleTaskStatus = (task: Task) => {
+  task.status = task.status === 'done' ? 'todo' : 'done';
+};
+
+const toggleExpand = (taskId: string) => {
+  if (expandedRows.value.has(taskId)) {
+    expandedRows.value.delete(taskId);
+  } else {
+    expandedRows.value.add(taskId);
+  }
+};
+
+const columns = [
+  {
+    key: 'expand',
+    label: '#',
+  },
+  {
+    key: 'status',
+    label: '',
+  },
+  {
+    key: 'title',
+    label: 'Title',
+  },
+  {
+    key: 'description',
+    label: 'Description',
+  },
+  {
+    key: 'priority',
+    label: 'Priority',
+  },
+  {
+    key: 'estimate',
+    label: 'Estimate',
+  },
+];
+
+const groupedColumns = computed(() => [
+  {
+    key: 'status',
+    label: 'Status',
+  },
+  {
+    key: 'title',
+    label: 'Title',
+  },
+]);
+
 </script>
 
 <template>
-  <Card v-if="user">
-    <div class="relative z-10">
-      <ProfileHeader :user="user" />
-      <template v-if="!user.userView && !isMyProfile"><PrivateAccount :user="user" /></template>
-      <template v-else>
-        <div class="scrollable-card max-h-[calc(100vh-18.875rem)] overflow-y-auto">
-          <HabitCard v-for="habit in isMyProfile ? myHabits : habits" :key="habit.id" :habit="habit" :isMyProfile="isMyProfile" />
+  <div class="container mx-auto p-6">
+    <UTable :rows="data" :columns="columns" :grouped-columns="groupedColumns">
+      <template #expand-data="{ row }">
+        <div class="flex items-center">
+          <span class="inline-block" :style="{ width: `calc(${row.depth * 1.5}rem)` }" />
+          <UButton v-if="hasSubTasks(row.id)" variant="ghost" color="primary" size="xs" square
+            :icon="expandedRows.has(row.id) ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
+            @click="toggleExpand(row.id)" />
         </div>
-        <EmptyHabits v-if="isMyProfile ? emptyMyHabits : emptyHabits" :isMyProfile="isMyProfile" />
       </template>
-    </div>
-  </Card>
-  <Card v-else class="items-start justify-center gap-7 p-6">
-    <div class="relative z-10 flex w-5/6 flex-col gap-5">
-      <div class="text-3xl font-semibold">404</div>
-      <p class="font-semibold">Sorry, this page isn't available.</p>
-      <p class="text-sm text-white/50">The link you followed may be broken, or the page may have been removed.</p>
-    </div>
-    <a href="/" class="button bg-white/20 px-2.5 py-2 hover:bg-white/30">
-      <UIcon name="i-heroicons-arrow-left-16-solid" class="h-5 w-5" />
-      Go back to Habit
-    </a>
-  </Card>
+      <template #status-data="{ row }">
+        <UCheckbox :model-value="row.status === 'done'" @update:model-value="toggleTaskStatus(row)" />
+      </template>
+      <template #priority-data="{ row }">
+        <UBadge :class="getPriorityColor(row.priority)">{{ row.priority }}</UBadge>
+      </template>
+    </UTable>
+  </div>
 </template>
