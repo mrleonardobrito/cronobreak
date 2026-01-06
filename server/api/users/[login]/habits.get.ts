@@ -1,14 +1,15 @@
 import { eq, and } from 'drizzle-orm';
 import { useValidatedParams, z } from 'h3-zod';
+import { validateUserAccess } from '../../../utils/auth';
 
 export default eventHandler(async event => {
   const { login } = await useValidatedParams(event, {
     login: z.string().toLowerCase(),
   });
 
-  const user = await useDB().select().from(tables.users).where(eq(tables.users.login, login)).limit(1).get();
+  const user = await validateUserAccess(event, login);
 
-  if (!user || !user.userView) {
+  if (!user.userView) {
     return [];
   }
 

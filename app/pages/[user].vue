@@ -1,5 +1,9 @@
 <script setup lang="ts">
 
+definePageMeta({
+  middleware: 'auth'
+})
+
 const { session } = useUserSession();
 const login = useRoute().params.user as string;
 const isMyProfile = computed(() => (session.value?.user as any)?.login === login);
